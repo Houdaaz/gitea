@@ -26,19 +26,14 @@ RUN go build contrib/environment-to-ini/environment-to-ini.go
 FROM alpine:3.16
 LABEL maintainer="maintainers@gitea.io"
 
-EXPOSE 22 3000
+EXPOSE 2222 3000
 
 RUN apk --no-cache add \
     bash \
     ca-certificates \
-    curl \
     gettext \
     git \
-    linux-pam \
-    openssh \
-    s6 \
-    sqlite \
-    su-exec \
+    curl \
     gnupg
 
 RUN addgroup \
@@ -46,25 +41,32 @@ RUN addgroup \
     git && \
   adduser \
     -S -H -D \
-    -h /data/git \
+    -h /var/lib/gitea/git \
     -s /bin/bash \
     -u 1000 \
     -G git \
-    git && \
-  echo "git:*" | chpasswd -e
+    git
 
-ENV USER git
-ENV GITEA_CUSTOM /data/gitea
+RUN mkdir -p /var/lib/gitea /etc/gitea
+RUN chown git:git /var/lib/gitea /etc/gitea
 
-VOLUME ["/data"]
+COPY docker/rootless /
+COPY --from=build-env --chown=root:root /go/src/code.gitea.io/gitea/gitea /app/gitea/gitea
+COPY --from=build-env --chown=root:root /go/src/code.gitea.io/gitea/environment-to-ini /usr/local/bin/environment-to-ini
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh /usr/local/bin/docker-setup.sh /app/gitea/gitea /usr/local/bin/gitea /usr/local/bin/environment-to-ini
 
-ENTRYPOINT ["/usr/bin/entrypoint"]
-CMD ["/bin/s6-svscan", "/etc/s6"]
+#git:git
+USER 1000:1000
+ENV GITEA_WORK_DIR /var/lib/gitea
+ENV GITEA_CUSTOM /var/lib/gitea/custom
+ENV GITEA_TEMP /tmp/gitea
+ENV TMPDIR /tmp/gitea
 
-RUN mkdir /docker/root
+#TODO add to docs the ability to define the ini to load (useful to test and revert a config)
+ENV GITEA_APP_INI /etc/gitea/app.ini
+ENV HOME "/var/lib/gitea/git"
+VOLUME ["/var/lib/gitea", "/etc/gitea"]
+WORKDIR /var/lib/gitea
 
-COPY docker/root /
-COPY --from=build-env /go/src/code.gitea.io/gitea/gitea /app/gitea/gitea
-COPY --from=build-env /go/src/code.gitea.io/gitea/environment-to-ini /usr/local/bin/environment-to-ini
-RUN chmod 755 /usr/bin/entrypoint /app/gitea/gitea /usr/local/bin/gitea /usr/local/bin/environment-to-ini
-RUN chmod 755 /etc/s6/gitea/* /etc/s6/openssh/* /etc/s6/.s6-svscan/*
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD []
